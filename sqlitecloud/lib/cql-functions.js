@@ -8,8 +8,9 @@ const StandardFunctions = {
   /**
    * Ensures ISO strings are returned for current timestamp
    * @returns {string} - SQL statement
+   * NOTE: Using strftime instead of custom ISO() function which isn't available in SQLite Cloud
    */
-  current_timestamp: () => 'ISO(current_timestamp)',
+  current_timestamp: () => "strftime('%Y-%m-%dT%H:%M:%fZ', current_timestamp)",
 
   /**
    * SQLite doesn't support arguments for current_date
@@ -70,6 +71,8 @@ const StandardFunctions = {
    * @param {string} x - The string to match
    * @param {string} y - The regular expression
    * @returns {string} - SQL statement
+   * NOTE: The 'regexp' operator requires a custom function to be registered server-side in SQLite Cloud
+   * See: https://docs.sqlitecloud.io/docs/sqlite-js for implementing custom functions
    */
   matchesPattern: (x, y) => `(${x} regexp ${y})`,
 
@@ -78,6 +81,7 @@ const StandardFunctions = {
    * @param {string} x - The string to match
    * @param {string} y - The regular expression
    * @returns {string} - SQL statement
+   * NOTE: The 'regexp' operator requires a custom function to be registered server-side in SQLite Cloud
    */
   matchespattern: (x, y) => `(${x} regexp ${y})`,
 }

@@ -53,13 +53,54 @@ sqlitecloud://user:password@host:port/database?timeout=10000
 
 ## Features
 
-This plugin provides full SQLite compatibility with the added benefits of SQLite Cloud:
+This plugin provides SQLite compatibility with the added benefits of SQLite Cloud:
 
 - Cloud-hosted SQLite databases
 - Multi-tenant support
 - Concurrent access
 - Automatic backups
 - High availability
+
+## Known Limitations
+
+### Custom Functions
+
+The `@sqlitecloud/drivers` package does not support client-side custom function registration like `better-sqlite3`. This means certain advanced CDS features that rely on custom SQL functions may require server-side implementation:
+
+- **session_context()** - Used for session variable access
+- **regexp** - Used for regular expression matching
+- **Custom date/time functions** - year(), month(), day(), hour(), minute(), second()
+
+#### Solutions:
+
+1. **Use SQLite-JS Extension**: Register custom functions server-side using the [SQLite-JS extension](https://docs.sqlitecloud.io/docs/sqlite-js)
+2. **Fallback to Built-in Functions**: The plugin automatically uses SQLite's built-in `strftime()` for date/time operations where possible
+3. **Limited Feature Set**: Some CAP features may not work without server-side function registration
+
+### API Differences
+
+Unlike the `@cap-js/sqlite` plugin which uses `better-sqlite3` (synchronous), this plugin uses `@sqlitecloud/drivers` (asynchronous). This means:
+
+- All database operations are Promise-based
+- Streaming may fetch all results before streaming (not ideal for very large result sets)
+- Some performance characteristics differ from local SQLite
+
+## Registering Server-Side Functions (Optional)
+
+If your application requires advanced features like session context or regular expressions, you'll need to register custom functions server-side using SQLite-JS:
+
+```javascript
+// Example: Registering the regexp function in SQLite Cloud
+// This would be done server-side, not in your Node.js application
+
+CREATE FUNCTION regexp(pattern TEXT, str TEXT) RETURNS INTEGER
+LANGUAGE JAVASCRIPT
+AS $$
+  return RegExp(pattern).test(str) ? 1 : 0;
+$$;
+```
+
+For more information on registering server-side functions, see the [SQLite Cloud SQLite-JS documentation](https://docs.sqlitecloud.io/docs/sqlite-js).
 
 ## Support
 

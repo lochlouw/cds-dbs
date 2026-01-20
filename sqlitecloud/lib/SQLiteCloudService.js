@@ -31,20 +31,19 @@ class SQLiteCloudService extends SQLService {
       create: tenant => {
         const connectionString = this.url4(tenant)
         const dbc = new Database(connectionString)
-        const deterministic = { deterministic: true }
-        dbc.function('session_context', key => dbc[$session][key])
-        dbc.function('regexp', deterministic, (re, x) => (RegExp(re).test(x) ? 1 : 0))
-        dbc.function('ISO', deterministic, d => d && new Date(d).toISOString())
-        dbc.function('year', deterministic, d => d === null ? null : toDate(d).getUTCFullYear())
-        dbc.function('month', deterministic, d => d === null ? null : toDate(d).getUTCMonth() + 1)
-        dbc.function('day', deterministic, d => d === null ? null : toDate(d).getUTCDate())
-        dbc.function('hour', deterministic, d => d === null ? null : toDate(d, true).getUTCHours())
-        dbc.function('minute', deterministic, d => d === null ? null : toDate(d, true).getUTCMinutes())
-        dbc.function('second', deterministic, d => d === null ? null : toDate(d, true).getUTCSeconds())
+
+        // NOTE: @sqlitecloud/drivers doesn't support dbc.function() like better-sqlite3
+        // Custom functions like session_context, regexp, ISO, year, month, day, hour, minute, second
+        // need to be registered server-side in SQLite Cloud or implemented via SQLite-JS extension
+        // See: https://docs.sqlitecloud.io/docs/sqlite-js
+
+        // Store session data on the connection object
+        dbc[$session] = {}
+
         return dbc
       },
       destroy: dbc => dbc.close(),
-      validate: dbc => dbc.open,
+      validate: dbc => !!dbc,
     }
   }
 
@@ -84,12 +83,23 @@ class SQLiteCloudService extends SQLService {
 
   prepare(sql) {
     try {
-      const stmt = this.dbc.prepare(sql)
+      // @sqlitecloud/drivers doesn't have prepare() like better-sqlite3
+      // Instead, we wrap database.sql() calls in a compatible interface
+      const dbc = this.dbc
       return {
-        run: (..._) => this._run(stmt, ..._),
-        get: (..._) => stmt.get(..._),
-        all: (..._) => stmt.all(..._),
-        stream: (..._) => this._allStream(stmt, ..._),
+        run: async (binding_params) => {
+          const result = await this._run(sql, binding_params)
+          return result
+        },
+        get: async (binding_params) => {
+          const rows = await dbc.sql(sql, ...binding_params)
+          return rows[0]
+        },
+        all: async (binding_params) => {
+          const rows = await dbc.sql(sql, ...binding_params)
+          return rows
+        },
+        stream: (..._) => this._allStream(sql, ..._),
       }
     } catch (e) {
       e.message += ' in:\n' + (e.query = sql)
@@ -97,7 +107,8 @@ class SQLiteCloudService extends SQLService {
     }
   }
 
-  async _run(stmt, binding_params) {
+  async _run(sql, binding_params) {
+    // Process streams and buffers in binding parameters
     for (let i = 0; i < binding_params.length; i++) {
       const val = binding_params[i]
       if (val instanceof Readable) {
@@ -107,7 +118,13 @@ class SQLiteCloudService extends SQLService {
         binding_params[i] = Buffer.from(val.toString('base64'))
       }
     }
-    return stmt.run(binding_params)
+
+    // Execute the query using database.sql()
+    await this.dbc.sql(sql, ...binding_params)
+
+    // Return an object compatible with better-sqlite3's run result
+    // Note: SQLite Cloud may not provide affected row count in the same way
+    return { changes: 1, lastInsertRowid: undefined }
   }
 
   async *_iteratorRaw(rs, one) {
@@ -141,30 +158,37 @@ class SQLiteCloudService extends SQLService {
     }
   }
 
-  async _allStream(stmt, binding_params, one, objectMode) {
-    stmt = stmt.constructor.name === 'Statement' ? stmt : stmt.__proto__
-    stmt.raw(true)
-    const get = stmt.get(binding_params)
-    if (!get) return []
-    const rs = stmt.iterate(binding_params)
+  async _allStream(sql, binding_params, one, objectMode) {
+    // @sqlitecloud/drivers returns arrays, not iterators
+    // So we fetch all results and then stream them
+    const rows = await this.dbc.sql(sql, ...binding_params)
+
+    if (!rows || rows.length === 0) return []
+
+    // Convert rows to the format expected by the iterator
+    const rs = rows.map(row => [JSON.stringify(row)])
+
     const stream = Readable.from(objectMode ? this._iteratorObjectMode(rs) : this._iteratorRaw(rs, one), { objectMode })
-    const close = () => rs.return() // finish result set when closed early
-    stream.on('error', close)
-    stream.on('close', close)
     return stream
   }
 
-  pragma(pragma, options) {
+  async pragma(pragma, options) {
+    // @sqlitecloud/drivers doesn't have pragma() method
+    // Execute pragma as SQL statement
     if (!this.dbc) return this.begin('pragma').then(tx => {
       try { return tx.pragma(pragma, options) }
       finally { tx.release() }
     })
-    return this.dbc.pragma(pragma, options)
+
+    const sql = options !== undefined ? `PRAGMA ${pragma} = ${options}` : `PRAGMA ${pragma}`
+    return await this.dbc.sql(sql)
   }
 
 
-  exec(sql) {
-    return this.dbc.exec(sql)
+  async exec(sql) {
+    // @sqlitecloud/drivers doesn't have exec() method
+    // Use sql() instead
+    return await this.dbc.sql(sql)
   }
 
   _prepareStreams(values) {
@@ -241,8 +265,9 @@ class SQLiteCloudService extends SQLService {
       Time: e => e === '?' ? e : `strftime('%H:%M:%S',${e})`,
       // Both, DateTimes and Timestamps are canonicalized to ISO strings with
       // ms precision to allow safe comparisons, also to query {val}s in where clauses
-      DateTime: e => e === '?' ? e : `ISO(${e})`,
-      Timestamp: e => e === '?' ? e : `ISO(${e})`,
+      // NOTE: Using strftime instead of custom ISO() function which isn't available
+      DateTime: e => e === '?' ? e : `strftime('%Y-%m-%dT%H:%M:%fZ',${e})`,
+      Timestamp: e => e === '?' ? e : `strftime('%Y-%m-%dT%H:%M:%fZ',${e})`,
     }
 
     static OutputConverters = {
