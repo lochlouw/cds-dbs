@@ -1,0 +1,46 @@
+{
+  "name": "@cap-js/sqlitecloud",
+  "version": "1.0.0",
+  "description": "CDS database service for SQLite Cloud",
+  "homepage": "https://github.com/cap-js/cds-dbs/tree/main/sqlitecloud#cds-database-service-for-sqlite-cloud",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cap-js/cds-dbs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cap-js/cds-dbs/issues"
+  },
+  "keywords": [
+    "CAP",
+    "CDS",
+    "SQLite",
+    "SQLite Cloud"
+  ],
+  "author": "SAP SE (https://www.sap.com)",
+  "main": "index.js",
+  "files": [
+    "cds-plugin.js",
+    "lib",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "cds-test"
+  },
+  "dependencies": {
+    "@cap-js/db-service": "^2.8.1",
+    "@sqlitecloud/drivers": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@sap/cds": ">=9"
+  },
+  "cds": {
+    "requires": {
+      "kinds": {
+        "sqlitecloud": {
+          "impl": "@cap-js/sqlitecloud"
+        }
+      }
+    }
+  },
+  "license": "Apache-2.0"
+}
